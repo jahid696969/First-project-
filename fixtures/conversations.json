@@ -1,0 +1,15 @@
+[
+  { "id": "guardian-bangla", "messages": [
+    { "text": "মিরপুরে class 7 English version math টিউটর চাই, সপ্তাহে ৩ দিন, budget ৬ হাজার", "expect": { "intent": "guardian", "nextAction": "ask_field", "fields": { "class": 7, "medium": "English Version", "salaryBudget": 6000 } } },
+    { "text": "যেকোনো টিউটর চলবে", "expect": { "nextAction": "ready_for_human_review" } },
+    { "text": "budget 7000", "expect": { "fields": { "salaryBudget": 7000 } } }
+  ] },
+  { "id": "guardian-banglish", "messages": [
+    { "text": "Mirpur class six math tutor lagbe", "expect": { "intent": "guardian", "fields": { "class": 6, "subject": "Math" } } },
+    { "text": "English Medium", "expect": { "fields": { "medium": "English Medium" } } }
+  ] },
+  { "id": "tutor-registration", "messages": [ { "text": "আমি টিউটর হিসেবে নিবন্ধন করতে চাই", "expect": { "intent": "tutor", "nextAction": "human_handoff" } } ] },
+  { "id": "policy", "messages": [ { "text": "commission কত?", "expect": { "intent": "policy_question", "nextAction": "answer_policy" } } ] },
+  { "id": "complaint", "messages": [ { "text": "আমার অভিযোগ আছে", "expect": { "intent": "complaint", "nextAction": "human_handoff" } } ] },
+  { "id": "uncertain", "messages": [ { "text": "ওই ব্যাপারটা কী হলো?", "expect": { "intent": "uncertain", "nextAction": "clarify" } } ] }
+]
