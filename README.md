@@ -1,7 +1,7 @@
 # Iqra Tutor Network — local reply prototype
 
 Node.js 22.8+, ES modules, no third-party dependencies. No npm install required.
-Milestone 2 adds optional Gemini REST transport; live API evaluation has NOT yet been performed. The owner selected
+Milestone 2 adds optional Gemini REST transport; Groq is now the preferred explicit live option; live API evaluation has NOT yet been performed. The owner selected
 VS Code on their own computer for the controlled synthetic evaluation. No database, web server, channel integration or billing setup.
 Use synthetic or properly de-identified data only. Never use customer data or IDs.
 
@@ -76,7 +76,7 @@ Dhanmondi, Uttara, Mohammadpur, Bashundhara; budget units k/হাজার/haja
 Ambiguous negation/alternatives need clarification. Unsupported classes/requests,
 unknown policies, role changes and sensitive cases require clarification/review.
 
-## Optional Gemini transport — pending separate live-test approval
+## Optional Gemini transport
 
 Default commands NEVER load a key or call Gemini. Live mode is authorized only
 for the controlled synthetic evaluation on the owner's computer, after confirming
@@ -235,3 +235,116 @@ Remove-Item Env:GEMINI_API_KEY
 For Bash use `unset GEMINI_API_KEY`. Never paste the key or a screenshot of it into
 chat. No live tests have been run in this managed environment, and no file changes
 have been committed or pushed as part of this evaluation preparation.
+
+
+## Groq — preferred explicit LLM provider
+
+Configuration: model `openai/gpt-oss-20b`, Free Plan constraints **30 RPM** and
+**8,000 TPM**, as supplied by the owner. Organization/account availability and
+quota have not been independently verified. This implementation uses Node fetch:
+no SDK or new dependency. REST: https://api.groq.com/openai/v1/chat/completions
+with `Authorization: Bearer ...`, `messages`, `response_format: json_schema`,
+`strict: true`, `reasoning_effort: low`, `max_completion_tokens: 1536`.
+No tools, billing changes, model auto-selection or provider failover.
+
+New modules: `src/providers/groq.js` and `src/providers/rate-limit.js`.
+The existing assistant injects one provider; core policies/state validation are
+shared. Groq's strict schema marks every property required and uses nullable
+values for absent fields. The adapter removes null extractedFields/evidence
+properties and validates against the existing common application contract.
+Strict JSON formatting is not evidence of factual correctness.
+
+### Rate and error behaviour
+
+- One shared provider instance/limiter across all conversations in the local CLI.
+- A rolling 60-second window permits at most 30 reserved requests and 8,000
+  reserved tokens. Each outgoing request reserves a pessimistic UTF-8 byte count
+  of the complete serialized body (including schema), 256 framing units, plus
+  the maximum 1,536 completion tokens. This is not an exact model tokenizer.
+- Context that cannot fit the token budget is rejected with token_budget_exceeded;
+  it is not silently truncated. This deliberately limits throughput below the
+  advertised ceiling, especially for Bangla or long histories. 30 RPM is a maximum,
+  not promised achievable throughput under 8,000 TPM.
+- Returned total token usage may increase a reservation; smaller usage never
+  refunds it inside that window. Failed requests retain reservations conservatively.
+- Groq 429 and Retry-After impose cooldown. Exhausted remaining-request/token
+  headers also impose reset waits. These headers can represent daily limits;
+  they must not be interpreted as only the local RPM window.
+- local_rate_limit / quota_exhausted return retryAfterMs where known. No waiting
+  loop or automatic retry: application falls back to rules. A later explicit
+  request can try only after cooldown. Repeated failures should stop evaluation.
+- 401/403 -> auth_error; 404 -> model_unavailable; 400 -> invalid_request;
+  429 -> quota_exhausted; 503 -> service_unavailable; other failures -> provider_error.
+  Auth/model errors disable the provider instance. Safety refusal hands off.
+- The default session cap is 20 outgoing calls, separately from the minute limits.
+  Guards/counters are process-local and reset on exit. Other processes, keys,
+  console use and applications may share the same organization quota: this guard
+  cannot guarantee that Groq will never return 429. Don't restart to evade quota.
+- Parsed numeric usage becomes the existing tokenUsage contract. Error metadata
+  exposes only whitelisted reason, HTTP status, wait time and provider identity.
+  Keys, headers, raw remote error bodies and arbitrary exception text are not logged.
+
+### Windows VS Code setup and first test
+
+Only use the latest source files containing `src/providers/groq.js`.
+Open the root with package.json, not an old nested project copy. Run all current
+root tests (this also avoids accidentally discovering tests in old nested copies):
+
+```powershell
+node --test --test-isolation=none test/engine.test.js test/assistant.test.js test/groq.test.js
+```
+
+Confirm your Groq account is Free Plan and this exact model is available. Never
+upgrade/link billing for this test. Enter the key in the same PowerShell session:
+
+```powershell
+$iqraSecret = Read-Host "Groq API key (hidden)" -AsSecureString
+$env:GROQ_API_KEY = [System.Net.NetworkCredential]::new("", $iqraSecret).Password
+$iqraSecret.Dispose()
+Remove-Variable iqraSecret
+```
+
+First synthetic request, consuming live quota only when you run it:
+
+```powershell
+npm.cmd start -- --groq --allow-api-tests --debug --message "আমার বাচ্চা সপ্তম শ্রেণিতে, অঙ্কে সাহায্য প্রয়োজন"
+```
+
+A validated API-assisted result should show engineMode llm, provider groq and
+providerStatus validated. A fallback may show rules plus the error/local limit.
+No success is guaranteed; actual Groq structured output/Bangla quality has not
+been evaluated by Codex. Record only synthetic results, usage and latency. Stop on
+errors, unsupported claims or any billing-related response; do not loop retries.
+After reviewing the first result, interactive readable testing is available:
+
+```powershell
+npm.cmd start -- --groq --allow-api-tests
+```
+
+Existing --gemini is still selectable separately. Both flags together are rejected;
+no live flag defaults to rules-only, even when keys are set. Groq is the preferred
+live option, not an automatic default network call. --fixtures never uses live API.
+No OpenAI paid service or Hugging Face routing is configured. An openai/ model
+name here is served through Groq, not billed through OpenAI's API.
+
+At the end remove the session key:
+
+```powershell
+Remove-Item Env:GROQ_API_KEY
+```
+
+Current limitation: CLI commands entered during an awaited provider request are
+still delayed; Ctrl+C stops the local process. Full transcript, prompt and policy
+checks remain prototype controls, not a production privacy/security boundary.
+Most policy, handoff, readiness and next-question prose stays application-generated;
+LLM assistance improves analysis and permitted clarifications, not every sentence.
+
+References:
+- https://console.groq.com/docs/models
+- https://console.groq.com/docs/api-reference
+- https://console.groq.com/docs/structured-outputs
+- https://console.groq.com/docs/rate-limits
+- https://console.groq.com/docs/your-data
+
+All Groq tests use injected mock transport. No key creation, account configuration,
+billing setup, live inference, Git commit or GitHub push was done for this change.

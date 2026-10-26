@@ -3,25 +3,29 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { createAssistant } from './assistant.js';
 import { createGeminiProvider } from './providers/gemini.js';
+import { createGroqProvider } from './providers/groq.js';
 
 const rawArgs = process.argv.slice(2);
 const debug = rawArgs.includes('--debug') || rawArgs.includes('--fixtures');
 const gemini = rawArgs.includes('--gemini');
+const groq = rawArgs.includes('--groq');
 const allowed = rawArgs.includes('--allow-api-tests');
-const args = rawArgs.filter(a => !['--debug', '--gemini', '--allow-api-tests'].includes(a));
-if (gemini && !allowed) throw new Error('Gemini disabled: live synthetic API testing requires separate approval and --allow-api-tests');
-const assistant = createAssistant({ provider: gemini ? createGeminiProvider({ enabled: true, apiKey: process.env.GEMINI_API_KEY }) : null });
+const args = rawArgs.filter(a => !['--debug', '--gemini', '--groq', '--allow-api-tests'].includes(a));
+if (gemini && groq) throw new Error('Select one provider only');
+if ((gemini || groq) && !allowed) throw new Error('Live synthetic API testing requires --allow-api-tests');
+const assistant = createAssistant({ provider: groq ? createGroqProvider({ enabled: true, apiKey: process.env.GROQ_API_KEY })
+  : gemini ? createGeminiProvider({ enabled: true, apiKey: process.env.GEMINI_API_KEY }) : null });
 async function run(input) {
   const output = await assistant.handle(input);
   if (debug) console.log(JSON.stringify(output, null, 2));
   else {
     if (input.text) console.log(`তুমি: ${input.text}`);
     console.log(`সিস্টেম: ${output.proposedReply ?? `[${output.nextAction}]`}`);
-    console.log(`[${output.engineMode}${output.providerStatus ? `: ${output.providerStatus}` : ''}]`);
+    console.log(`[${output.engineMode}${output.provider ? `/${output.provider}` : ''}${output.providerStatus ? `: ${output.providerStatus}` : ''}]`);
   }
 }
 if (args[0] === '--fixtures' && args.length === 1) {
-  if (gemini) throw new Error('Fixtures never call the live provider');
+  if (gemini || groq) throw new Error('Fixtures never call the live provider');
   const cases = JSON.parse(await readFile(new URL('../fixtures/conversations.json', import.meta.url), 'utf8'));
   for (const example of cases) for (const [i, message] of example.messages.entries()) {
     await run({ conversationId: example.id, messageId: `${example.id}-${i}`, text: message.text });
@@ -29,7 +33,7 @@ if (args[0] === '--fixtures' && args.length === 1) {
 } else if (args[0] === '--message' && args[1]) {
   await run({ conversationId: 'sample', messageId: 'sample-1', text: args.slice(1).join(' ') });
 } else if (args.length) {
-  console.error('Usage: npm start [-- --debug] | npm run fixtures | npm start -- --message "synthetic message"');
+  console.error('Usage: npm start [-- --debug] | npm run fixtures | npm start -- --groq --allow-api-tests [--debug] | npm start -- --message "synthetic message"');
   process.exitCode = 1;
 } else {
   console.log('Synthetic data only. Type plain text or JSON. /pause /takeover /resume /new ID /exit. State is temporary.');

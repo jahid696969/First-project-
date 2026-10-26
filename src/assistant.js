@@ -2,7 +2,7 @@ import { processMessage } from './engine.js';
 import { copyState, recordEvent } from './state.js';
 import { validateAnalysis } from './provider-output.js';
 
-const errorCodes = new Set(['provider_disabled', 'missing_key', 'unapproved_model', 'local_call_limit', 'auth_error', 'model_unavailable', 'quota_exhausted', 'provider_error', 'provider_refusal', 'incomplete_output', 'invalid_output', 'timeout']);
+const errorCodes = new Set(['provider_disabled', 'missing_key', 'unapproved_model', 'local_call_limit', 'local_rate_limit', 'token_budget_exceeded', 'auth_error', 'model_unavailable', 'quota_exhausted', 'service_unavailable', 'invalid_request', 'provider_error', 'provider_refusal', 'incomplete_output', 'invalid_output', 'timeout']);
 const usageFields = ['promptTokenCount', 'candidatesTokenCount', 'totalTokenCount', 'thoughtsTokenCount', 'cachedContentTokenCount'];
 
 // Each instance owns its sessions. Controls execute immediately; normal messages
@@ -30,7 +30,7 @@ export function createAssistant({ provider = null, timeoutMs = 20000 } = {}) {
     if (!provider || ['duplicate_ignored', 'automation_paused', 'human_handoff'].includes(baseline.nextAction) || !input.text?.trim()) return commit(input, baseline);
     const generation = generations.get(input.conversationId) || 0;
     const controller = new AbortController();
-    let timer, analysis, fallbackReason, tokenUsage;
+    let timer, analysis, fallbackReason, tokenUsage, retryAfterMs, httpStatus;
     const started = performance.now();
     try {
       const raw = await Promise.race([
@@ -49,6 +49,8 @@ export function createAssistant({ provider = null, timeoutMs = 20000 } = {}) {
       analysis = validateAnalysis(raw, input.text);
     } catch (error) {
       fallbackReason = errorCodes.has(error?.message) ? error.message : 'provider_error';
+      if (Number.isSafeInteger(error?.retryAfterMs) && error.retryAfterMs > 0) retryAfterMs = error.retryAfterMs;
+      if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599) httpStatus = error.httpStatus;
     } finally { clearTimeout(timer); }
     if ((generations.get(input.conversationId) || 0) !== generation) {
       // Consume the accepted message once without applying stale facts/reply.
@@ -68,6 +70,9 @@ export function createAssistant({ provider = null, timeoutMs = 20000 } = {}) {
       out.reason = 'provider_refusal';
     } else out = analysis ? processMessage({ ...input, previousState, analysis }) : baseline;
     out.engineMode = analysis ? 'llm' : 'rules';
+    out.provider = ['groq', 'gemini'].includes(provider?.name) ? provider.name : 'mock';
+    if (retryAfterMs) out.retryAfterMs = retryAfterMs;
+    if (httpStatus) out.httpStatus = httpStatus;
     out.providerStatus = analysis ? 'validated' : fallbackReason;
     out.latencyMs = Math.round(performance.now() - started);
     if (tokenUsage) out.tokenUsage = tokenUsage;
