@@ -200,7 +200,7 @@ test('CLI fixtures and one-shot sample run without external services', async () 
     await import('../src/cli.js?fixtures');
     assert.ok(lines.some(line => JSON.parse(line).nextAction === 'ready_for_human_review'));
     lines.length = 0;
-    process.argv = ['node', 'cli', '--message', 'Need a tutor class 7'];
+    process.argv = ['node', 'cli', '--debug', '--message', 'Need a tutor class 7'];
     await import('../src/cli.js?single');
     assert.equal(JSON.parse(lines[0]).knownFields.class, 7);
   } finally {

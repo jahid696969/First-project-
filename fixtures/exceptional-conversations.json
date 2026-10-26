@@ -1,0 +1,14 @@
+[
+  { "id": "bangla-indirect", "text": "আমার বাচ্চা সপ্তম শ্রেণিতে, অঙ্কে সাহায্য প্রয়োজন", "intent": "guardian", "fields": { "class": 7, "subject": "Math" } },
+  { "id": "banglish-typo", "text": "amar baccha clss seven e, maths porate hobe", "intent": "guardian", "fields": { "class": 7, "subject": "Math" } },
+  { "id": "english", "text": "My daughter needs help with mathematics in grade seven", "intent": "guardian", "fields": { "class": 7, "subject": "Math" } },
+  { "id": "multiple-questions", "text": "class 7 math tutor chai, commission কত?", "intent": "guardian", "fields": { "class": 7, "subject": "Math" }, "policyTopics": ["commission"] },
+  { "id": "incomplete", "text": "আমার ছেলের জন্য শিক্ষক লাগবে", "intent": "guardian", "fields": {} },
+  { "id": "corrected-class", "text": "আগেরটা ভুল, বাচ্চা এখন অষ্টম শ্রেণিতে", "intent": "guardian", "fields": { "class": 8 } },
+  { "id": "contradictory", "text": "class 6 অথবা class 7", "intent": "guardian", "fields": {}, "ambiguousFields": ["class"] },
+  { "id": "medium-distinction", "text": "English Version, English Medium না", "intent": "guardian", "fields": { "medium": "English Version" } },
+  { "id": "outside-scope", "text": "আগামীকালের আবহাওয়া বলুন", "intent": "general", "fields": {}, "needsHuman": true },
+  { "id": "availability", "text": "আজকেই নিশ্চিত টিউটর পাব?", "intent": "guardian", "fields": {}, "needsHuman": true },
+  { "id": "complaint", "text": "শিক্ষকের আচরণে ভয় পাচ্ছি", "intent": "complaint", "fields": {}, "needsHuman": true },
+  { "id": "unknown-price", "text": "ডেমোর ফি কত?", "intent": "policy_question", "fields": {}, "policyTopics": ["unknown"], "needsHuman": true }
+]

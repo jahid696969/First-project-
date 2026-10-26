@@ -1,19 +1,21 @@
+import { validateAnalysis } from './provider-output.js';
 import { classify, extract, normalize } from './rules.js';
 import { initialState, copyState, validateState, recordEvent } from './state.js';
 import { GUARDIAN_FIELDS, QUESTIONS, COMMISSION_REPLY, FORM_REPLY, FALLBACK_REPLY } from './policies.js';
 
-export function processMessage({ conversationId, messageId, text = '', previousState, control }) {
+export function processMessage({ conversationId, messageId, text = '', previousState, control, analysis }) {
   if (typeof conversationId !== 'string' || !conversationId.trim() ||
       typeof messageId !== 'string' || !messageId.trim()) throw new Error('Nonempty conversationId and messageId required');
   if (typeof text !== 'string') throw new Error('Message must be text');
   if (control && !['pause', 'takeover', 'resume'].includes(control)) throw new Error('Unknown control');
   const state = previousState ? copyState(previousState) : initialState(conversationId);
   validateState(state, conversationId);
+  let policyPrefix = '';
   const result = (nextAction, proposedReply, extractedFields = {}, extra = {}) => ({
     engineMode: 'rules', intent: state.intent, extractedFields,
     knownFields: copyState(state.fields),
     missingFields: state.intent === 'guardian' ? GUARDIAN_FIELDS.filter(f => state.fields[f] === undefined) : [],
-    pendingClarifications: [...state.pendingClarifications], nextAction, proposedReply,
+    pendingClarifications: [...state.pendingClarifications], nextAction, proposedReply: proposedReply ? policyPrefix + proposedReply : null,
     state: copyState(state), ...extra
   });
   if (state.processedMessageIds.includes(messageId)) return result('duplicate_ignored', null);
@@ -39,18 +41,36 @@ export function processMessage({ conversationId, messageId, text = '', previousS
   const t = normalize(text);
   if (/human|মানুষ|এজেন্ট|কর্মকর্তা/.test(t)) return safeHandoff('human_requested');
   if (/ignore.*(?:rules|instructions)|system prompt|সব নিয়ম|সব নিয়ম|অন্য.*(?:ফোন|তথ্য)|guarantee|নিশ্চয়তা|নিশ্চয়তা|refund policy|ছাড়|ছাড়/.test(t)) return safeHandoff('unsupported_or_sensitive_request');
-  const detected = classify(text);
-  if (detected === 'complaint') { state.intent = 'complaint'; return safeHandoff('complaint'); }
-  if (detected === 'policy_question') {
+  if (analysis) analysis = validateAnalysis(analysis, text);
+  const ruleIntent = classify(text);
+  let detected = analysis?.intent || ruleIntent;
+  if (ruleIntent === 'complaint' || detected === 'complaint') { state.intent = 'complaint'; return safeHandoff('complaint'); }
+  if (analysis?.needsHuman || analysis?.policyTopics.includes('unknown')) return safeHandoff('provider_requested_review');
+  const commission = ruleIntent === 'policy_question' || analysis?.policyTopics.includes('commission');
+  const ruleParsed = extract(text, state.lastQuestion);
+  const parsed = analysis
+    ? { fields: { ...ruleParsed.fields, ...analysis.extractedFields },
+      ambiguities: [...new Set([...ruleParsed.ambiguities.filter(f => !Object.hasOwn(analysis.extractedFields, f)), ...analysis.ambiguousFields])],
+      jobId: analysis.jobId || ruleParsed.jobId }
+    : ruleParsed;
+  for (const field of parsed.ambiguities) delete parsed.fields[field];
+  if (commission) {
     recordEvent(state, 'policy_answer', { messageId, policy: 'commission' });
-    const out = result('answer_policy', COMMISSION_REPLY);
-    out.intent = 'policy_question';
-    return out;
+    if (!Object.keys(parsed.fields).length || detected === 'tutor' || state.intent === 'tutor') {
+      const out = result('answer_policy', COMMISSION_REPLY);
+      out.intent = 'policy_question';
+      return out;
+    }
+    // Explicit guardian language, not merely the presence of fields, establishes role.
+    if (detected === 'policy_question') detected = classify(text.replace(/commission|কমিশন/gi, ''));
+    if (!['guardian', 'tutor'].includes(detected) && state.intent !== 'guardian') {
+      return result('answer_policy', COMMISSION_REPLY);
+    }
+    policyPrefix = COMMISSION_REPLY + ' ';
   }
   if (detected === 'guardian' && state.intent === 'tutor' || detected === 'tutor' && state.intent === 'guardian') return safeHandoff('role_change_needs_review');
   if (detected === 'guardian' && state.intent === 'guardian' && /নতুন|another|new tuition/.test(t)) return safeHandoff('new_request_needs_separation');
   if (['guardian', 'tutor'].includes(detected)) state.intent = detected;
-  const parsed = extract(text, state.lastQuestion);
   if (state.intent === 'tutor') {
     if (parsed.jobId) state.jobId = parsed.jobId;
     if (/এই টিউশন|ওই টিউশন|this tuition|interested|আগ্রহী/.test(t)) {
@@ -71,7 +91,7 @@ export function processMessage({ conversationId, messageId, text = '', previousS
     return result('clarify', detected === 'general' ? 'আসসালামু আলাইকুম। আপনি কি টিউটর খুঁজছেন, নাকি টিউটর হিসেবে জানতে চাইছেন?' : FALLBACK_REPLY, {}, { intent: detected });
   }
   // Unknown area names and unsupported explicit values must not silently preserve old facts.
-  if (/area\s*[:=]|এলাকা\s*[:=]/.test(t) && !parsed.fields.area) parsed.ambiguities.push('area');
+  if (!analysis && /area\s*[:=]|এলাকা\s*[:=]/.test(t) && !parsed.fields.area) parsed.ambiguities.push('area');
   for (const field of parsed.ambiguities) {
     if (!state.pendingClarifications.includes(field)) state.pendingClarifications.push(field);
   }
