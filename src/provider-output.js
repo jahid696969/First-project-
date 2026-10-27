@@ -17,7 +17,11 @@ export const OUTPUT_SCHEMA = {
   }
 };
 const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
-function fail() { throw new Error('invalid_output'); }
+function fail(code = 'schema_mismatch') {
+  const error = new Error('invalid_output');
+  error.validationCode = code;
+  throw error;
+}
 export function validateAnalysis(raw, text) {
   if (!plain(raw)) fail();
   if (Object.keys(raw).some(k => !Object.hasOwn(OUTPUT_SCHEMA.properties, k)) || OUTPUT_SCHEMA.required.some(k => !Object.hasOwn(raw, k))) fail();
@@ -32,10 +36,10 @@ export function validateAnalysis(raw, text) {
     if (field === 'genderPreference' && !['Male', 'Female', 'No preference'].includes(value)) fail();
     checkEvidence(raw.evidence[field], text);
     const explicit = extract(raw.evidence[field]).fields[field];
-    if (explicit !== undefined && explicit !== value) fail();
+    if (explicit !== undefined && explicit !== value) fail('evidence_value_conflict');
   }
   for (const key of Object.keys(raw.evidence)) if (![...GUARDIAN_FIELDS, 'jobId'].includes(key)) fail();
-  if (!Array.isArray(raw.ambiguousFields) || raw.ambiguousFields.some(f => !GUARDIAN_FIELDS.includes(f) || Object.hasOwn(raw.extractedFields, f))) fail();
+  if (!Array.isArray(raw.ambiguousFields) || raw.ambiguousFields.some(f => !GUARDIAN_FIELDS.includes(f) || Object.hasOwn(raw.extractedFields, f))) fail('ambiguous_field_conflict');
   if (!Array.isArray(raw.policyTopics) || raw.policyTopics.some(p => !['commission', 'unknown'].includes(p))) fail();
   if (raw.jobId !== null) {
     if (typeof raw.jobId !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(raw.jobId)) fail();
@@ -43,9 +47,9 @@ export function validateAnalysis(raw, text) {
     if (!normalize(raw.evidence.jobId).includes(normalize(raw.jobId))) fail();
   }
   // Defense in depth, not a semantic guarantee. All text remains a local draft.
-  if (/https?:|www\.|guarantee|নিশ্চিত.*(?:পাবেন|টিউটর)|টিউটর.*পাওয়া গেছে|টিউটর.*পাওয়া গেছে|\bavailable\b|\bverified\b|যাচাইকৃত|\d+\s*%|[০-৯]+\s*%/i.test(raw.reply)) fail();
+  if (/https?:|www\.|guarantee|নিশ্চিত.*(?:পাবেন|টিউটর)|টিউটর.*পাওয়া গেছে|টিউটর.*পাওয়া গেছে|\bavailable\b|\bverified\b|যাচাইকৃত|\d+\s*%|[০-৯]+\s*%/i.test(raw.reply)) fail('unsafe_reply');
   return structuredClone(raw);
 }
 function checkEvidence(value, text) {
-  if (typeof value !== 'string' || !value.trim() || value.length > 500 || !normalize(text).includes(normalize(value))) fail();
+  if (typeof value !== 'string' || !value.trim() || value.length > 500 || !normalize(text).includes(normalize(value))) fail('invalid_evidence');
 }

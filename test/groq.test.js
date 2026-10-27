@@ -212,3 +212,40 @@ test('CLI refuses live Groq without opt-in, refuses multiple providers and live 
     await assert.rejects(import('../src/cli.js?groq-no-live-fixtures'), /never call/);
   } finally { process.argv = args; }
 });
+
+test('Bangla guardian example validates canonical facts with verbatim evidence', async () => {
+  const message = 'আমার বাচ্চা সপ্তম শ্রেণিতে, অঙ্কে সাহায্য প্রয়োজন';
+  let prompt;
+  const output = wire({ extractedFields: { class: 7, subject: 'Math' }, evidence: { class: 'সপ্তম', subject: 'অঙ্ক' }, reply: 'কোন এলাকায় টিউটর প্রয়োজন?' });
+  const app = createAssistant({ provider: make(async (_, options) => {
+    prompt = JSON.parse(options.body).messages[0].content;
+    return response({ output });
+  }) });
+  const out = await app.handle({ text: message, messageId: 'bn-1', conversationId: 'bn' });
+  assert.equal(out.providerStatus, 'validated');
+  assert.equal(out.engineMode, 'llm');
+  assert.equal(out.knownFields.class, 7);
+  assert.equal(out.knownFields.subject, 'Math');
+  assert.match(prompt, /copied verbatim/);
+  assert.match(prompt, /Canonical subject names/);
+});
+
+test('invalid output diagnostics identify evidence conflict without exposing response content', async () => {
+  const app = createAssistant({ provider: make(async () => response({ output: wire({ extractedFields: { class: 8 } }) })) });
+  const out = await app.handle(input());
+  assert.equal(out.providerStatus, 'invalid_output');
+  assert.equal(out.validationCode, 'evidence_value_conflict');
+  assert.equal(out.engineMode, 'rules');
+  assert.equal(out.knownFields.class, 7);
+  assert.doesNotMatch(JSON.stringify(out), /synthetic-test-key/);
+});
+
+test('invalid JSON and fabricated evidence remain rejected with safe diagnostics', async () => {
+  for (const [output, code] of [['```json {} ```', 'json_parse'], [wire({ evidence: { class: 'class 9' } }), 'invalid_evidence']]) {
+    const app = createAssistant({ provider: make(async () => response({ output })) });
+    const out = await app.handle(input());
+    assert.equal(out.providerStatus, 'invalid_output');
+    assert.equal(out.validationCode, code);
+    assert.equal(out.engineMode, 'rules');
+  }
+});

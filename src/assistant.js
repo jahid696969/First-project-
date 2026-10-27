@@ -30,7 +30,7 @@ export function createAssistant({ provider = null, timeoutMs = 20000 } = {}) {
     if (!provider || ['duplicate_ignored', 'automation_paused', 'human_handoff'].includes(baseline.nextAction) || !input.text?.trim()) return commit(input, baseline);
     const generation = generations.get(input.conversationId) || 0;
     const controller = new AbortController();
-    let timer, analysis, fallbackReason, tokenUsage, retryAfterMs, httpStatus;
+    let timer, analysis, fallbackReason, tokenUsage, retryAfterMs, httpStatus, validationCode;
     const started = performance.now();
     try {
       const raw = await Promise.race([
@@ -49,6 +49,7 @@ export function createAssistant({ provider = null, timeoutMs = 20000 } = {}) {
       analysis = validateAnalysis(raw, input.text);
     } catch (error) {
       fallbackReason = errorCodes.has(error?.message) ? error.message : 'provider_error';
+      if (fallbackReason === 'invalid_output' && ['json_parse', 'schema_mismatch', 'evidence_value_conflict', 'ambiguous_field_conflict', 'unsafe_reply', 'invalid_evidence'].includes(error?.validationCode)) validationCode = error.validationCode;
       if (Number.isSafeInteger(error?.retryAfterMs) && error.retryAfterMs > 0) retryAfterMs = error.retryAfterMs;
       if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599) httpStatus = error.httpStatus;
     } finally { clearTimeout(timer); }
@@ -73,6 +74,7 @@ export function createAssistant({ provider = null, timeoutMs = 20000 } = {}) {
     out.provider = ['groq', 'gemini'].includes(provider?.name) ? provider.name : 'mock';
     if (retryAfterMs) out.retryAfterMs = retryAfterMs;
     if (httpStatus) out.httpStatus = httpStatus;
+    if (validationCode) out.validationCode = validationCode;
     out.providerStatus = analysis ? 'validated' : fallbackReason;
     out.latencyMs = Math.round(performance.now() - started);
     if (tokenUsage) out.tokenUsage = tokenUsage;

@@ -1,5 +1,6 @@
 import { OUTPUT_SCHEMA, validateAnalysis } from '../provider-output.js';
 import { COMMISSION_REPLY } from '../policies.js';
+import { extract } from '../rules.js';
 import { createRateLimiter } from './rate-limit.js';
 
 export const GROQ_MODEL = 'openai/gpt-oss-20b';
@@ -17,8 +18,9 @@ function wireSchema() {
   }
   return schema;
 }
-function fail(reason, httpStatus, retryAfterMs = 0) {
+function fail(reason, httpStatus, retryAfterMs = 0, validationCode) {
   const error = new Error(reason);
+  if (validationCode) error.validationCode = validationCode;
   if (httpStatus) error.httpStatus = httpStatus;
   if (retryAfterMs > 0) error.retryAfterMs = Math.ceil(retryAfterMs);
   throw error;
@@ -47,7 +49,13 @@ export function createGroqProvider({ enabled = false, apiKey, model = GROQ_MODEL
             'No approved Form URL or other policies exist. Never invent availability, credentials, prices, guarantees or URLs.',
             'Complaint, sensitive case, unknown policy or multiple independent requests: needsHuman. Ambiguous fields: clarify rather than guess.',
             'Do not send, resume or control anything. Assistant history contains drafts, not delivered replies.',
-            'Return the JSON schema. All extractedFields/evidence properties are required on the wire; use null for absent values.',
+            'Return exactly one JSON object matching the schema, without Markdown fences or explanatory text. All extractedFields/evidence properties are required; use null for absent values, never empty strings or zero.',
+            'Use intent guardian for a parent seeking subject help for their child. Use class as an integer (সপ্তম = 7).',
+            'Canonical subject names: Math (অঙ্ক/অংক/গণিত), English, Bangla, Physics, Chemistry, Biology, Science, All subjects. Use comma-space for multiple subjects.',
+            'medium must be English Medium, English Version or Bangla Medium; genderPreference must be Male, Female or No preference. Unknown values must remain null and be clarified.',
+            'Evidence must be copied verbatim from the current message, not translated or paraphrased. Each non-null extracted field needs its matching evidence. A field cannot be both extracted and ambiguous.',
+            'Use empty arrays for absent ambiguousFields/policyTopics, null jobId/reason when absent, and a nonempty Bangla reply without policy claims, percentages, URLs or guarantees.',
+            `Deterministic current-message field hints (use their canonical values where supported; do not invent evidence): ${JSON.stringify(extract(context.message).fields)}`,
             'List commission/unknown in policyTopics as appropriate. Do not use policy claims in reply; application supplies policy wording.'
           ].join('\n') },
           { role: 'user', content: JSON.stringify(context) }
@@ -91,7 +99,7 @@ export function createGroqProvider({ enabled = false, apiKey, model = GROQ_MODEL
       const text = choice.message?.content;
       if (typeof text !== 'string' || !text.trim() || text.length > 12000) fail('invalid_output');
       let parsed;
-      try { parsed = JSON.parse(text); } catch { fail('invalid_output'); }
+      try { parsed = JSON.parse(text); } catch { fail('invalid_output', undefined, 0, 'json_parse'); }
       for (const name of ['extractedFields', 'evidence']) {
         if (parsed?.[name] && typeof parsed[name] === 'object' && !Array.isArray(parsed[name])) {
           parsed[name] = Object.fromEntries(Object.entries(parsed[name]).filter(([, value]) => value !== null));
